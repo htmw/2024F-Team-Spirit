@@ -1,0 +1,3 @@
+## Project Description
+
+The SentimentPulse app is a sort of news aggregator, enmeshed with AI-driven sentiment analysis, for traders and investors in the stock market. It pulls news from various sources and analyzes the sentiment for each article-positive, negative, or neutral. SentimentPulse enables filtering on sentiments, relevance, and stock symbols, hence placing him in a better position compared to normal news sites or manual research, for swift yet strategic trading decisions. It puts together news regarding the stock market in one place and gives sentiment insight with the use of AI, hence enhancing decision-making accuracy in a time-saving manner for users.
