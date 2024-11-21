@@ -5,9 +5,12 @@ from pydantic import BaseModel
 import httpx
 import requests
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from cachetools import TTLCache
 from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import DESCENDING
+from bson import ObjectId
 
 load_dotenv()
 
@@ -21,6 +24,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# MongoDB Configuration
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+client = AsyncIOMotorClient(MONGODB_URL)
+db = client.news_sentiment_db
+news_collection = db.news_articles
+
+# Cache Configuration
 news_cache = TTLCache(maxsize=100, ttl=300)
 
 MARKETAUX_API = {
@@ -77,9 +87,51 @@ def transform_news_data(marketaux_response):
             "source": article["source"],
             "url": article["url"],
             "publishedAt": article["published_at"],
-            "relatedSymbols": related_symbols
+            "relatedSymbols": related_symbols,
+            "created_at": datetime.utcnow()
         })
     return transformed_news
+
+async def store_news_in_db(news_data: List[dict]):
+    """Store news articles in MongoDB"""
+    if not news_data:
+        return
+
+    # Convert datetime objects to string format for MongoDB
+    for article in news_data:
+        if isinstance(article["publishedAt"], str):
+            article["publishedAt"] = datetime.fromisoformat(article["publishedAt"].replace('Z', '+00:00'))
+
+    # Use bulk write operations for better performance
+    try:
+        operations = [
+            {
+                "updateOne": {
+                    "filter": {"id": article["id"]},
+                    "update": {"$set": article},
+                    "upsert": True
+                }
+            }
+            for article in news_data
+        ]
+        await news_collection.bulk_write(operations)
+    except Exception as e:
+        print(f"Error storing news in MongoDB: {e}")
+
+async def get_news_from_db(symbols: Optional[List[str]] = None, limit: int = 10) -> List[dict]:
+    """Retrieve news articles from MongoDB"""
+    query = {}
+    if symbols:
+        query["relatedSymbols"] = {"$in": symbols}
+
+    # Get articles from the last 24 hours
+    time_threshold = datetime.utcnow() - timedelta(hours=24)
+    query["created_at"] = {"$gte": time_threshold}
+
+    cursor = news_collection.find(query)
+    cursor.sort("publishedAt", DESCENDING).limit(limit)
+
+    return await cursor.to_list(length=limit)
 
 @app.get("/")
 async def root():
@@ -87,15 +139,40 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    try:
+        # Check MongoDB connection
+        await client.admin.command('ping')
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "mongodb_status": "connected"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "mongodb_status": "disconnected",
+            "error": str(e)
+        }
 
 @app.get("/api/news")
 async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 10):
     try:
+        # Parse symbols
+        symbol_list = symbols.split(',') if symbols else None
+
+        # Check cache first
         cache_key = f"news:{symbols}:{page}:{limit}"
         if cache_key in news_cache:
             return news_cache[cache_key]
 
+        # Check MongoDB for recent articles
+        db_news = await get_news_from_db(symbol_list, limit)
+        if db_news:
+            news_cache[cache_key] = db_news
+            return db_news
+
+        # If no recent articles in MongoDB, fetch from MarketAux
         async with httpx.AsyncClient(timeout=30.0) as client:
             params = {
                 "api_token": MARKETAUX_API["token"],
@@ -107,10 +184,14 @@ async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 10
             }
             response = await client.get(f"{MARKETAUX_API['base_url']}/news/all", params=params)
             response.raise_for_status()
+
             news_data = transform_news_data(response.json())
             for article in news_data:
                 text_for_sentiment = f"{article['title']}. {article['description']}"
                 article["sentiment"] = await get_sentiment(text_for_sentiment)
+
+            # Store in MongoDB and cache
+            await store_news_in_db(news_data)
             news_cache[cache_key] = news_data
             return news_data
 
@@ -134,10 +215,14 @@ async def refresh_news(symbols: Optional[str] = None):
             }
             response = await client.get(f"{MARKETAUX_API['base_url']}/news/all", params=params)
             response.raise_for_status()
+
             news_data = transform_news_data(response.json())
             for article in news_data:
                 text_for_sentiment = f"{article['title']}. {article['description']}"
                 article["sentiment"] = await get_sentiment(text_for_sentiment)
+
+            # Store in MongoDB
+            await store_news_in_db(news_data)
             return news_data
 
     except httpx.TimeoutException:
@@ -146,6 +231,10 @@ async def refresh_news(symbols: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
 
 if __name__ == "__main__":
     import uvicorn

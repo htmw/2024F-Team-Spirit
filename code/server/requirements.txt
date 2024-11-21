@@ -7,3 +7,5 @@ firebase-admin
 cachetools
 pydantic
 python-multipart
+motor
+pymongo
