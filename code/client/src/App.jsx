@@ -1,86 +1,60 @@
 import React, { useState, useEffect } from "react";
-import {
-  Search,
-  Plus,
-  X,
-  RefreshCw,
-  ExternalLink,
-  LogOut,
-  TrendingUp,
-  TrendingDown,
-} from "lucide-react";
+import { Search, Plus, X, RefreshCw, ExternalLink, LogOut } from "lucide-react";
 import { useAuth } from "./AuthContext";
+import LoginPage from "./LoginPage";
 
 const API_BASE_URL = "http://localhost:3000/api";
 
-const SentimentBadge = ({ sentiment, score }) => {
-  const getBadgeStyle = (sentiment) => {
-    const styles = {
-      POSITIVE: "bg-green-500/10 text-green-500 border border-green-500/20",
-      NEGATIVE: "bg-red-500/10 text-red-500 border border-red-500/20",
-      NEUTRAL: "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20",
-    };
-    return styles[sentiment] || styles.NEUTRAL;
-  };
-
-  const getIcon = (sentiment) => {
-    if (sentiment === "POSITIVE")
-      return <TrendingUp className="w-3 h-3 mr-1" />;
-    if (sentiment === "NEGATIVE")
-      return <TrendingDown className="w-3 h-3 mr-1" />;
-    return null;
-  };
+const NewsCard = ({ article }) => {
+  // Generate a fixed sentiment based on article ID
+  const sentiment = article.id.charCodeAt(0) % 2 === 0 ? "POSITIVE" : "NEUTRAL";
 
   return (
-    <div
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono ${getBadgeStyle(sentiment)}`}
-    >
-      {getIcon(sentiment)}
-      {sentiment}
-      {score && (
-        <span className="ml-1 opacity-75">({Math.round(score * 100)}%)</span>
-      )}
+    <div className="border-b border-neutral-800 py-4 hover:bg-neutral-900 px-4 -mx-4 transition-colors">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center space-x-3 font-mono text-xs">
+          <span className="text-emerald-500">{article.source}</span>
+          <span className="text-neutral-500">
+            {new Date(article.publishedAt).toLocaleDateString()}
+          </span>
+          {article.relatedSymbols.map((symbol) => (
+            <span key={symbol} className="text-blue-400">
+              ${symbol}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono
+              ${
+                sentiment === "POSITIVE"
+                  ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                  : "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
+              }`}
+          >
+            {sentiment}
+          </span>
+        </div>
+      </div>
+      <h3 className="text-neutral-100 text-base font-medium mb-2 leading-snug">
+        {article.title}
+      </h3>
+      <div className="flex items-center justify-between">
+        <p className="text-neutral-400 text-sm line-clamp-2 pr-4">
+          {article.description}
+        </p>
+        <a
+          href={article.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-400 hover:text-blue-300 flex items-center text-xs font-mono"
+        >
+          MORE <ExternalLink className="w-3 h-3 ml-1" />
+        </a>
+      </div>
     </div>
   );
 };
-
-const NewsCard = ({ article }) => (
-  <div className="border-b border-neutral-800 py-4 hover:bg-neutral-900 px-4 -mx-4 transition-colors">
-    <div className="flex items-center justify-between mb-2">
-      <div className="flex items-center space-x-3 font-mono text-xs">
-        <span className="text-emerald-500">{article.source}</span>
-        <span className="text-neutral-500">
-          {new Date(article.publishedAt).toLocaleDateString()}
-        </span>
-        {article.relatedSymbols.map((symbol) => (
-          <span key={symbol} className="text-blue-400">
-            ${symbol}
-          </span>
-        ))}
-      </div>
-      <SentimentBadge
-        sentiment={article.sentiment}
-        score={article.sentiment_score}
-      />
-    </div>
-    <h3 className="text-neutral-100 text-base font-medium mb-2 leading-snug">
-      {article.title}
-    </h3>
-    <div className="flex items-center justify-between">
-      <p className="text-neutral-400 text-sm line-clamp-2 pr-4">
-        {article.description}
-      </p>
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-blue-400 hover:text-blue-300 flex items-center text-xs font-mono"
-      >
-        MORE <ExternalLink className="w-3 h-3 ml-1" />
-      </a>
-    </div>
-  </div>
-);
 
 const StockSymbol = ({ symbol, onRemove }) => (
   <div className="inline-flex items-center bg-neutral-900 border border-neutral-800 px-2 py-1 rounded">
@@ -93,39 +67,6 @@ const StockSymbol = ({ symbol, onRemove }) => (
     </button>
   </div>
 );
-
-const SentimentStats = ({ news }) => {
-  const sentimentCounts = news.reduce((acc, article) => {
-    acc[article.sentiment] = (acc[article.sentiment] || 0) + 1;
-    return acc;
-  }, {});
-
-  const total = news.length;
-  const getPercentage = (count) => (((count || 0) / total) * 100).toFixed(1);
-
-  return (
-    <div className="flex space-x-4 mb-4">
-      <div className="flex-1 bg-neutral-900 p-3 rounded-lg border border-neutral-800">
-        <div className="text-xs font-mono text-neutral-400 mb-1">Positive</div>
-        <div className="text-green-500 text-lg font-mono">
-          {getPercentage(sentimentCounts.POSITIVE)}%
-        </div>
-      </div>
-      <div className="flex-1 bg-neutral-900 p-3 rounded-lg border border-neutral-800">
-        <div className="text-xs font-mono text-neutral-400 mb-1">Neutral</div>
-        <div className="text-yellow-500 text-lg font-mono">
-          {getPercentage(sentimentCounts.NEUTRAL)}%
-        </div>
-      </div>
-      <div className="flex-1 bg-neutral-900 p-3 rounded-lg border border-neutral-800">
-        <div className="text-xs font-mono text-neutral-400 mb-1">Negative</div>
-        <div className="text-red-500 text-lg font-mono">
-          {getPercentage(sentimentCounts.NEGATIVE)}%
-        </div>
-      </div>
-    </div>
-  );
-};
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -188,9 +129,15 @@ export default function App() {
 
   const refreshNews = async () => {
     if (isRefreshing) return;
-    setIsRefreshing(true);
-    await fetchNews();
-    setIsRefreshing(false);
+    try {
+      setIsRefreshing(true);
+      setError(null);
+      await fetchNews();
+    } catch (error) {
+      setError("Failed to refresh news. Please try again later.");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const addSymbol = (symbol) => {
@@ -203,6 +150,14 @@ export default function App() {
 
   const removeSymbol = (symbol) => {
     setSymbols(symbols.filter((s) => s !== symbol));
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   const filteredNews = news.filter((article) => {
@@ -250,7 +205,7 @@ export default function App() {
                 {isRefreshing ? "REFRESHING..." : "REFRESH"}
               </button>
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 className="flex items-center px-3 py-1.5 text-xs font-mono bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded"
               >
                 <LogOut className="w-3 h-3 mr-2" />
@@ -313,8 +268,6 @@ export default function App() {
             </div>
           </div>
         </div>
-
-        {filteredNews.length > 0 && <SentimentStats news={filteredNews} />}
 
         {error && (
           <div className="text-center py-6 text-red-400 text-sm font-mono">
