@@ -22,9 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Increase cache size and TTL for better performance
-news_cache = TTLCache(maxsize=500, ttl=600)  # 10 minutes cache
-rate_limit_cache = TTLCache(maxsize=100, ttl=10)  # 10 seconds rate limit
+news_cache = TTLCache(maxsize=500, ttl=600)
+rate_limit_cache = TTLCache(maxsize=100, ttl=10)
 
 MARKETAUX_API = {
     "base_url": "https://api.marketaux.com/v1",
@@ -48,7 +47,6 @@ class NewsArticle(BaseModel):
     sentiment_score: Optional[float] = None
 
 async def get_sentiment(text: str) -> tuple[str, float]:
-    """Get sentiment analysis with confidence score"""
     try:
         response = requests.post(
             HUGGINGFACE_API["url"],
@@ -64,11 +62,9 @@ async def get_sentiment(text: str) -> tuple[str, float]:
         }
         return sentiment_mapping.get(sentiment['label'].lower(), "NEUTRAL"), sentiment['score']
     except Exception as e:
-        print(f"Sentiment analysis error: {e}")
         return "NEUTRAL", 0.5
 
 def transform_news_data(marketaux_response):
-    """Transform API response to news articles"""
     transformed_news = []
     for article in marketaux_response["data"]:
         related_symbols = [
@@ -88,7 +84,6 @@ def transform_news_data(marketaux_response):
     return transformed_news
 
 async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int):
-    """Fetch a single page of news from MarketAux API"""
     try:
         params = {
             "api_token": MARKETAUX_API["token"],
@@ -102,27 +97,21 @@ async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Error fetching page {page}: {e}")
         return None
 
 async def fetch_all_news_pages(symbols: Optional[str], base_limit: int = 10):
-    """Fetch multiple pages of news concurrently"""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # Create tasks for fetching three pages
         tasks = [
             fetch_news_page(client, symbols, page, base_limit)
-            for page in range(1, 4)  # Pages 1, 2, and 3
+            for page in range(1, 4)
         ]
 
-        # Execute all tasks concurrently
         results = await asyncio.gather(*tasks)
 
-        # Merge and process results
         all_news = []
         for result in results:
             if result and 'data' in result:
                 news_data = transform_news_data(result)
-                # Get sentiment for each article
                 for article in news_data:
                     text_for_sentiment = f"{article['title']}. {article['description']}"
                     sentiment_label, sentiment_score = await get_sentiment(text_for_sentiment)
@@ -151,7 +140,6 @@ async def health_check():
 @app.get("/api/news")
 async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 30):
     try:
-        # Check rate limiting
         rate_limit_key = f"rate_limit:{symbols or 'general'}"
         if rate_limit_key in rate_limit_cache:
             raise HTTPException(
@@ -159,22 +147,16 @@ async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 30
                 detail="Too many requests. Please wait 10 seconds between requests."
             )
 
-        # Set rate limit
         rate_limit_cache[rate_limit_key] = datetime.now()
 
-        # Check cache
         cache_key = f"news:{symbols}:{page}:{limit}"
         if cache_key in news_cache:
             return news_cache[cache_key]
 
-        # Fetch news from all three pages
         news_data = await fetch_all_news_pages(symbols, limit // 3)
 
         if news_data:
-            # Sort by publishedAt date
             news_data.sort(key=lambda x: x["publishedAt"], reverse=True)
-
-            # Store in cache
             news_cache[cache_key] = news_data
             return news_data
 
@@ -188,7 +170,6 @@ async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 30
 @app.get("/api/news/refresh")
 async def refresh_news(symbols: Optional[str] = None):
     try:
-        # Check rate limiting
         rate_limit_key = f"rate_limit_refresh:{symbols or 'general'}"
         if rate_limit_key in rate_limit_cache:
             raise HTTPException(
@@ -196,20 +177,14 @@ async def refresh_news(symbols: Optional[str] = None):
                 detail="Too many requests. Please wait 10 seconds between refreshes."
             )
 
-        # Set rate limit
         rate_limit_cache[rate_limit_key] = datetime.now()
 
-        # Fetch fresh news from all three pages
         news_data = await fetch_all_news_pages(symbols, 10)
 
         if news_data:
-            # Sort by publishedAt date
             news_data.sort(key=lambda x: x["publishedAt"], reverse=True)
-
-            # Update cache with new data
             cache_key = f"news:{symbols}:1:30"
             news_cache[cache_key] = news_data
-
             return news_data
 
         return []
@@ -221,7 +196,6 @@ async def refresh_news(symbols: Optional[str] = None):
 
 @app.get("/api/stats")
 async def get_stats(symbols: Optional[str] = None):
-    """Get statistics about the news data"""
     try:
         cache_key = f"news:{symbols}:1:30"
         if cache_key not in news_cache:
@@ -232,20 +206,14 @@ async def get_stats(symbols: Optional[str] = None):
 
         news_data = news_cache[cache_key]
 
-        # Calculate statistics
         sentiment_counts = {"POSITIVE": 0, "NEUTRAL": 0, "NEGATIVE": 0}
         source_counts = {}
         symbol_counts = {}
         total_articles = len(news_data)
 
         for article in news_data:
-            # Count sentiments
             sentiment_counts[article["sentiment"]] += 1
-
-            # Count sources
             source_counts[article["source"]] = source_counts.get(article["source"], 0) + 1
-
-            # Count symbols
             for symbol in article["relatedSymbols"]:
                 symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
 
