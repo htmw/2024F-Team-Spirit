@@ -12,29 +12,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="News Sentiment API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-news_cache = TTLCache(maxsize=500, ttl=600)
-rate_limit_cache = TTLCache(maxsize=100, ttl=10)
-
-MARKETAUX_API = {
-    "base_url": "https://api.marketaux.com/v1",
-    "token": os.getenv("MARKETAUX_API_TOKEN", "b4sLrUAkKochUZHyHWT3PksORZeFsZ5LE3Ouw3hy")
-}
-
-HUGGINGFACE_API = {
-    "url": "https://api-inference.huggingface.co/models/mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis",
-    "token": os.getenv("HUGGINGFACE_API_TOKEN", "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")
-}
-
 class NewsArticle(BaseModel):
     id: str
     title: str
@@ -45,6 +22,29 @@ class NewsArticle(BaseModel):
     relatedSymbols: List[str]
     sentiment: Optional[str] = None
     sentiment_score: Optional[float] = None
+
+app = FastAPI(title="News Sentiment API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+news_cache = TTLCache(maxsize=500, ttl=600)
+rate_limit_cache = TTLCache(maxsize=100, ttl=10)
+
+MARKETAUX_API = {
+    "base_url": "https://api.marketaux.com/v1",
+    "token": os.getenv("MARKETAUX_API_TOKEN")
+}
+
+HUGGINGFACE_API = {
+    "url": "https://api-inference.huggingface.co/models/mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis",
+    "token": os.getenv("HUGGINGFACE_API_TOKEN")
+}
 
 async def get_sentiment(text: str) -> tuple[str, float]:
     try:
@@ -61,7 +61,7 @@ async def get_sentiment(text: str) -> tuple[str, float]:
             "negative": "NEGATIVE"
         }
         return sentiment_mapping.get(sentiment['label'].lower(), "NEUTRAL"), sentiment['score']
-    except Exception as e:
+    except Exception:
         return "NEUTRAL", 0.5
 
 def transform_news_data(marketaux_response):
@@ -96,7 +96,7 @@ async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int)
         response = await client.get(f"{MARKETAUX_API['base_url']}/news/all", params=params)
         response.raise_for_status()
         return response.json()
-    except Exception as e:
+    except Exception:
         return None
 
 async def fetch_all_news_pages(symbols: Optional[str], base_limit: int = 10):
@@ -105,7 +105,6 @@ async def fetch_all_news_pages(symbols: Optional[str], base_limit: int = 10):
             fetch_news_page(client, symbols, page, base_limit)
             for page in range(1, 4)
         ]
-
         results = await asyncio.gather(*tasks)
 
         all_news = []
@@ -148,8 +147,8 @@ async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 30
             )
 
         rate_limit_cache[rate_limit_key] = datetime.now()
-
         cache_key = f"news:{symbols}:{page}:{limit}"
+
         if cache_key in news_cache:
             return news_cache[cache_key]
 
@@ -178,7 +177,6 @@ async def refresh_news(symbols: Optional[str] = None):
             )
 
         rate_limit_cache[rate_limit_key] = datetime.now()
-
         news_data = await fetch_all_news_pages(symbols, 10)
 
         if news_data:
@@ -205,7 +203,6 @@ async def get_stats(symbols: Optional[str] = None):
             }
 
         news_data = news_cache[cache_key]
-
         sentiment_counts = {"POSITIVE": 0, "NEUTRAL": 0, "NEGATIVE": 0}
         source_counts = {}
         symbol_counts = {}
