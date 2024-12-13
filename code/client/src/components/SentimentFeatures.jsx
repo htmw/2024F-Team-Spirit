@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Download } from "lucide-react";
 
-const SentimentFeatures = ({ news }) => {
+const SentimentFeatures = ({ news, onSentimentFilterChange }) => {
   const [sentimentFilter, setSentimentFilter] = useState("ALL");
 
   // Filter news based on sentiment
@@ -10,6 +10,13 @@ const SentimentFeatures = ({ news }) => {
       return sentimentFilter === "ALL" || article.sentiment === sentimentFilter;
     });
   }, [news, sentimentFilter]);
+
+  // Handle sentiment filter change
+  const handleSentimentChange = (e) => {
+    const newSentiment = e.target.value;
+    setSentimentFilter(newSentiment);
+    onSentimentFilterChange(newSentiment); // Notify parent component
+  };
 
   // Export to CSV
   const exportToCSV = () => {
@@ -54,7 +61,7 @@ const SentimentFeatures = ({ news }) => {
           </label>
           <select
             value={sentimentFilter}
-            onChange={(e) => setSentimentFilter(e.target.value)}
+            onChange={handleSentimentChange}
             className="bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5 text-sm font-mono"
           >
             <option value="ALL">All Sentiments</option>
