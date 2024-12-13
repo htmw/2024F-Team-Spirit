@@ -332,17 +332,6 @@ export default function App() {
             </div>
 
             <div className="flex items-center space-x-4">
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1
-                  text-xs font-mono focus:outline-none focus:border-blue-500"
-              >
-                <option value="all">ALL NEWS</option>
-                <option value="relevant">RELEVANT</option>
-                <option value="other">OTHER</option>
-              </select>
-
               <span className="text-xs font-mono text-neutral-500">
                 {filteredNews.length} ITEMS
               </span>
