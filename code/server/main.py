@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from pydantic import BaseModel
 import httpx
 import requests
@@ -23,7 +23,11 @@ class NewsArticle(BaseModel):
     sentiment: Optional[str] = None
     sentiment_score: Optional[float] = None
 
-app = FastAPI(title="News Sentiment API")
+app = FastAPI(
+    title="News Sentiment API",
+    description="Real-time financial news sentiment analysis API",
+    version="2.1.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,9 +37,13 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-news_cache = TTLCache(maxsize=500, ttl=600)
-rate_limit_cache = TTLCache(maxsize=100, ttl=10)
+# Updated cache configuration
+NEWS_CACHE_TTL = 600  # 10 minutes
+RATE_LIMIT_TTL = 10   # 10 seconds
+news_cache = TTLCache(maxsize=500, ttl=NEWS_CACHE_TTL)
+rate_limit_cache = TTLCache(maxsize=100, ttl=RATE_LIMIT_TTL)
 
+# API configurations
 MARKETAUX_API = {
     "base_url": "https://api.marketaux.com/v1",
     "token": os.getenv("MARKETAUX_API_TOKEN")
@@ -46,33 +54,33 @@ HUGGINGFACE_API = {
     "token": os.getenv("HUGGINGFACE_API_TOKEN")
 }
 
-async def get_sentiment(text: str) -> tuple[str, float]:
+async def get_sentiment(text: str) -> Tuple[str, float]:
     try:
-        response = requests.post(
+        api_response = requests.post(
             HUGGINGFACE_API["url"],
             headers={"Authorization": f"Bearer {HUGGINGFACE_API['token']}"},
             json={"inputs": text}
         )
-        result = response.json()
-        sentiment = max(result[0], key=lambda x: x['score'])
+        result = api_response.json()
+        sentiment_result = max(result[0], key=lambda x: x['score'])
         sentiment_mapping = {
             "positive": "POSITIVE",
             "neutral": "NEUTRAL",
             "negative": "NEGATIVE"
         }
-        return sentiment_mapping.get(sentiment['label'].lower(), "NEUTRAL"), sentiment['score']
+        return sentiment_mapping.get(sentiment_result['label'].lower(), "NEUTRAL"), sentiment_result['score']
     except Exception:
         return "NEUTRAL", 0.5
 
 def transform_news_data(marketaux_response):
-    transformed_news = []
+    transformed_articles = []
     for article in marketaux_response["data"]:
         related_symbols = [
             entity["symbol"]
             for entity in article["entities"]
             if entity["type"] == "equity"
         ]
-        transformed_news.append({
+        transformed_articles.append({
             "id": article["uuid"],
             "title": article["title"],
             "description": article["description"] or article["snippet"],
@@ -81,11 +89,11 @@ def transform_news_data(marketaux_response):
             "publishedAt": article["published_at"],
             "relatedSymbols": related_symbols
         })
-    return transformed_news
+    return transformed_articles
 
 async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int):
     try:
-        params = {
+        request_params = {
             "api_token": MARKETAUX_API["token"],
             "symbols": symbols or "",
             "filter_entities": "true",
@@ -93,7 +101,7 @@ async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int)
             "page": page,
             "limit": limit
         }
-        response = await client.get(f"{MARKETAUX_API['base_url']}/news/all", params=params)
+        response = await client.get(f"{MARKETAUX_API['base_url']}/news/all", params=request_params)
         response.raise_for_status()
         return response.json()
     except Exception:
@@ -101,31 +109,32 @@ async def fetch_news_page(client, symbols: Optional[str], page: int, limit: int)
 
 async def fetch_all_news_pages(symbols: Optional[str], base_limit: int = 10):
     async with httpx.AsyncClient(timeout=30.0) as client:
-        tasks = [
+        fetch_tasks = [
             fetch_news_page(client, symbols, page, base_limit)
             for page in range(1, 4)
         ]
-        results = await asyncio.gather(*tasks)
+        api_results = await asyncio.gather(*fetch_tasks)
 
-        all_news = []
-        for result in results:
+        combined_news = []
+        for result in api_results:
             if result and 'data' in result:
                 news_data = transform_news_data(result)
                 for article in news_data:
-                    text_for_sentiment = f"{article['title']}. {article['description']}"
-                    sentiment_label, sentiment_score = await get_sentiment(text_for_sentiment)
+                    sentiment_text = f"{article['title']}. {article['description']}"
+                    sentiment_label, sentiment_score = await get_sentiment(sentiment_text)
                     article["sentiment"] = sentiment_label
                     article["sentiment_score"] = sentiment_score
-                all_news.extend(news_data)
+                combined_news.extend(news_data)
 
-        return all_news
+        return combined_news
 
 @app.get("/")
 async def root():
     return {
         "message": "Welcome to News Sentiment API",
-        "version": "2.0",
-        "features": ["Multi-page fetching", "Sentiment analysis", "Rate limiting"]
+        "version": "2.1.0",
+        "features": ["Multi-page fetching", "Sentiment analysis", "Rate limiting"],
+        "last_updated": "2024-12-12"
     }
 
 @app.get("/health")
@@ -133,7 +142,8 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "cache_size": len(news_cache)
+        "cache_size": len(news_cache),
+        "rate_limit_cache_size": len(rate_limit_cache)
     }
 
 @app.get("/api/news")
@@ -152,19 +162,19 @@ async def get_news(symbols: Optional[str] = None, page: int = 1, limit: int = 30
         if cache_key in news_cache:
             return news_cache[cache_key]
 
-        news_data = await fetch_all_news_pages(symbols, limit // 3)
+        fetched_news = await fetch_all_news_pages(symbols, limit // 3)
 
-        if news_data:
-            news_data.sort(key=lambda x: x["publishedAt"], reverse=True)
-            news_cache[cache_key] = news_data
-            return news_data
+        if fetched_news:
+            fetched_news.sort(key=lambda x: x["publishedAt"], reverse=True)
+            news_cache[cache_key] = fetched_news
+            return fetched_news
 
         return []
 
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=str(err))
 
 @app.get("/api/news/refresh")
 async def refresh_news(symbols: Optional[str] = None):
@@ -177,20 +187,20 @@ async def refresh_news(symbols: Optional[str] = None):
             )
 
         rate_limit_cache[rate_limit_key] = datetime.now()
-        news_data = await fetch_all_news_pages(symbols, 10)
+        fetched_news = await fetch_all_news_pages(symbols, 10)
 
-        if news_data:
-            news_data.sort(key=lambda x: x["publishedAt"], reverse=True)
+        if fetched_news:
+            fetched_news.sort(key=lambda x: x["publishedAt"], reverse=True)
             cache_key = f"news:{symbols}:1:30"
-            news_cache[cache_key] = news_data
-            return news_data
+            news_cache[cache_key] = fetched_news
+            return fetched_news
 
         return []
 
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=str(err))
 
 @app.get("/api/stats")
 async def get_stats(symbols: Optional[str] = None):
@@ -221,9 +231,14 @@ async def get_stats(symbols: Optional[str] = None):
             "top_symbols": dict(sorted(symbol_counts.items(), key=lambda x: x[1], reverse=True)[:5])
         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=str(err))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 3000)), reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 3000)),
+        reload=True
+    )
