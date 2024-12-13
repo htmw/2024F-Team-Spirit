@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 import { motion } from "framer-motion";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -7,14 +7,41 @@ const LoginPage = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
   const { login, signup, loginWithGoogle } = useAuth();
+
+  useEffect(() => {
+    if (!isLogin && password && confirmPassword) {
+      validatePasswords();
+    }
+  }, [password, confirmPassword, isLogin]);
+
+  const validatePasswords = () => {
+    if (password.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return false;
+    }
+    if (password !== confirmPassword) {
+      setPasswordError("Passwords do not match");
+      return false;
+    }
+    setPasswordError("");
+    return true;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setPasswordError("");
+
+    if (!isLogin && !validatePasswords()) {
+      return;
+    }
+
     setIsLoading(true);
     try {
       if (isLogin) {
@@ -38,6 +65,15 @@ const LoginPage = () => {
       setError(getErrorMessage(err.code));
     } finally {
       setIsGoogleLoading(false);
+    }
+  };
+
+  const handleModeSwitch = () => {
+    setIsLogin(!isLogin);
+    setError("");
+    setPasswordError("");
+    if (!isLogin) {
+      setConfirmPassword("");
     }
   };
 
@@ -88,14 +124,14 @@ const LoginPage = () => {
           </p>
         </motion.div>
 
-        {error && (
+        {(error || passwordError) && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-red-500/10 border border-red-500/50 text-red-500 px-4 py-3 rounded-lg text-sm font-mono flex items-center backdrop-blur-sm"
           >
             <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0 animate-pulse" />
-            <span>{error}</span>
+            <span>{error || passwordError}</span>
           </motion.div>
         )}
 
@@ -133,9 +169,32 @@ const LoginPage = () => {
               />
             </div>
 
+            {!isLogin && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-2"
+              >
+                <label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={isLoading || isGoogleLoading}
+                  className="w-full bg-neutral-800/50 border border-neutral-700 rounded-lg px-4 py-3 text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 font-mono transition-all disabled:opacity-50"
+                  required
+                />
+              </motion.div>
+            )}
+
             <motion.button
               type="submit"
-              disabled={isLoading || isGoogleLoading}
+              disabled={
+                isLoading || isGoogleLoading || (!isLogin && passwordError)
+              }
               whileHover={{ scale: isLoading ? 1 : 1.02 }}
               whileTap={{ scale: isLoading ? 1 : 0.98 }}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-mono py-3 px-4 rounded-lg transition-colors uppercase tracking-wider shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
@@ -190,7 +249,7 @@ const LoginPage = () => {
           className="text-center"
         >
           <button
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={handleModeSwitch}
             disabled={isLoading || isGoogleLoading}
             className="text-neutral-400 hover:text-blue-400 text-sm font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
