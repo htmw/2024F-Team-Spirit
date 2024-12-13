@@ -110,7 +110,7 @@ async def fetch_all_news_pages(symbols: Optional[str], base_limit: int = 10):
     async with httpx.AsyncClient(timeout=30.0) as client:
         fetch_tasks = [
             fetch_news_page(client, symbols, page, base_limit)
-            for page in range(1, 4)
+            for page in range(1, 5)
         ]
         api_results = await asyncio.gather(*fetch_tasks)
 
