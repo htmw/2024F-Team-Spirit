@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import LoginPage from "./LoginPage";
+import SentimentFeatures from "./components/SentimentFeatures";
 
 const API_BASE_URL = "http://localhost:3000/api";
 
@@ -138,6 +139,8 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sentimentFilter, setSentimentFilter] = useState("ALL");
+  const [symbolsFilter, setSymbolsFilter] = useState([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -219,11 +222,30 @@ export default function App() {
     setSymbols(symbols.filter((s) => s !== symbol));
   };
 
+  const handleSentimentFilterChange = (sentiment) => {
+    setSentimentFilter(sentiment);
+  };
+
+  const handleSymbolsFilterChange = (selectedSymbols) => {
+    setSymbolsFilter(selectedSymbols);
+  };
+
   const filteredNews = news.filter((article) => {
-    if (filter === "all") return true;
-    return filter === "relevant"
-      ? article.relatedSymbols.some((symbol) => symbols.includes(symbol))
-      : !article.relatedSymbols.some((symbol) => symbols.includes(symbol));
+    const matchesGeneralFilter =
+      filter === "all"
+        ? true
+        : filter === "relevant"
+          ? article.relatedSymbols.some((symbol) => symbols.includes(symbol))
+          : !article.relatedSymbols.some((symbol) => symbols.includes(symbol));
+
+    const matchesSentiment =
+      sentimentFilter === "ALL" || article.sentiment === sentimentFilter;
+
+    const matchesSymbolsFilter =
+      symbolsFilter.length === 0 ||
+      article.relatedSymbols.some((symbol) => symbolsFilter.includes(symbol));
+
+    return matchesGeneralFilter && matchesSentiment && matchesSymbolsFilter;
   });
 
   if (!user) {
@@ -329,6 +351,13 @@ export default function App() {
         </div>
 
         {filteredNews.length > 0 && <SentimentStats news={filteredNews} />}
+
+        <SentimentFeatures
+          news={filteredNews}
+          symbols={symbols}
+          onSentimentFilterChange={handleSentimentFilterChange}
+          onSymbolsFilterChange={handleSymbolsFilterChange}
+        />
 
         <div className="divide-y divide-neutral-800">
           {loading ? (
