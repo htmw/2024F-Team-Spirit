@@ -37,9 +37,8 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Updated cache configuration
-NEWS_CACHE_TTL = 600  # 10 minutes
-RATE_LIMIT_TTL = 10   # 10 seconds
+NEWS_CACHE_TTL = 600
+RATE_LIMIT_TTL = 10
 news_cache = TTLCache(maxsize=500, ttl=NEWS_CACHE_TTL)
 rate_limit_cache = TTLCache(maxsize=100, ttl=RATE_LIMIT_TTL)
 
